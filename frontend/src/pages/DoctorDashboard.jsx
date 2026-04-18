@@ -20,6 +20,9 @@ export default function DoctorDashboard() {
   const [filtersOpen, setFiltersOpen] = useState(false); // mobile filter toggle
   const navigate = useNavigate();
 
+  // --- 🚀 NEW: WhatsApp Configuration State ---
+  const [waConfig, setWaConfig] = useState({ whatsapp_enabled: "false", whatsapp_mode: "text" });
+
   const formatIndiaDate = (d) => {
     if (!d) return "N/A";
     return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -38,6 +41,17 @@ export default function DoctorDashboard() {
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
+  }, []);
+
+  // --- 🚀 NEW: Fetch WhatsApp Settings on Load ---
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const res = await axios.get("http://localhost:5000/api/service-config");
+        setWaConfig(res.data);
+      } catch (err) { console.error("Config fetch error"); }
+    };
+    fetchConfig();
   }, []);
 
   useEffect(() => {
@@ -176,12 +190,57 @@ export default function DoctorDashboard() {
     } catch (err) { toast.error("Failed to process Rx!"); }
   };
 
-  const sendWhatsApp = (mobile, name) => {
-    if (!mobile) { toast.error("Number not found!"); return; }
-    const formattedNumber = mobile.toString().length === 10 ? `91${mobile}` : mobile;
-    const msg = `Smart Clinic Update: Dear ${name}, your check-up report and prescription are ready.`;
-    window.open(`https://wa.me/${formattedNumber}?text=${encodeURIComponent(msg)}`, '_blank');
-  };
+  // --- 🚀 UPDATED: WhatsApp Link Logic with Config ---
+  const sendWhatsApp = (appt) => {
+  const { 
+    patient_mobile: mobile, 
+    patient_name: name, 
+    patient_age: age, 
+    doctor_name: doctor, 
+    appointment_date: date, 
+    appointment_time: time,
+    id 
+  } = appt;
+
+  if (!mobile) {
+    toast.error("Patient mobile number not found!");
+    return;
+  }
+
+  // Check if enabled in DB
+  if (String(waConfig.whatsapp_enabled) !== "true") {
+    toast.warning("WhatsApp Service is currently disabled by Admin.");
+    return;
+  }
+
+  // Formatting Date for India
+  const formattedDate = new Date(date).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+
+  // --- 📝 DIGITAL INVOICE TEMPLATE ---
+  const message = 
+    `*🏥 SMART CLINIC & HEALTHCARE* %0A` +
+    `*DIGITAL APPOINTMENT INVOICE* %0A%0A` +
+    `------------------------------------%0A` +
+    `*Reg No:* #${id} %0A` +
+    `*Patient Name:* ${name.toUpperCase()} %0A` +
+    `*Age/Sex:* ${age || 'N/A'} Yrs %0A` +
+    `*Doctor:* Dr. ${doctor} %0A` +
+    `*Date:* ${formattedDate} %0A` +
+    `*Time Slot:* ${time} %0A` +
+    `------------------------------------%0A` +
+    `*Status:* ✅ Confirmed %0A%0A` +
+    `Please show this message at the reception. %0A` +
+    `_Thank you for choosing our care!_`;
+
+  const formattedNumber = mobile.toString().length === 10 ? `91${mobile}` : mobile;
+  
+  // Open WhatsApp
+  window.open(`https://wa.me/${formattedNumber}?text=${message}`, '_blank');
+};
 
   const addMedicine = (id, med) => {
     const current = prescriptions[id] || "";
@@ -322,13 +381,11 @@ export default function DoctorDashboard() {
 
         {/* Filter Bar */}
         <div className="dd-filterbar" style={{ background: theme.card, color: theme.text }}>
-          {/* Mobile toggle button */}
           <button className="dd-filter-toggle" onClick={() => setFiltersOpen(!filtersOpen)}>
             <span>🔍 Filters & Search</span>
             <span>{filtersOpen ? '▲' : '▼'}</span>
           </button>
 
-          {/* Filters — always visible on desktop, toggle on mobile */}
           <div className={filtersOpen ? 'dd-filters-visible' : 'dd-filters-hidden'}
             style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', flex: 1 }}>
             <input type="text" placeholder="🔍 Search Patient..."
@@ -355,9 +412,6 @@ export default function DoctorDashboard() {
               Reset
             </button>
           </div>
-
-          {/* Desktop always visible */}
-          <style>{`@media (min-width: 769px) { .dd-filters-hidden { display: flex !important; flex-wrap: wrap; gap: 10px; flex: 1; } .dd-filter-toggle { display: none !important; } }`}</style>
         </div>
 
         {/* Appointment Cards */}
@@ -369,7 +423,6 @@ export default function DoctorDashboard() {
 
             return (
               <div key={appt.id || index} style={{ ...proCard, background: theme.card, color: theme.text, borderTopColor: isConfirmed ? '#10b981' : isLocked ? '#ef4444' : '#f59e0b' }}>
-                {/* Card Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div style={{ ...tokenCircleMain, background: isConfirmed ? '#10b981' : isLocked ? '#ef4444' : '#f59e0b' }}>{currentToken}</div>
@@ -378,12 +431,12 @@ export default function DoctorDashboard() {
                     </h4>
                   </div>
                   <div style={{ display: 'flex', gap: '5px' }}>
-                    <button onClick={() => sendWhatsApp(appt.patient_mobile, appt.patient_name)} style={proWaBtn}>WA</button>
+                    {/* --- 🚀 Button calling new sendWhatsApp --- */}
+                    <button onClick={() => sendWhatsApp(appt)} style={proWaBtn}>WA</button>
                     <button onClick={() => setHistoryPatient(appt)} style={proHistoryBtn}>📜</button>
                   </div>
                 </div>
 
-                {/* Info Grid */}
                 <div style={infoGrid}>
                   <div style={infoItem}><span>Status:</span><b style={{ color: isConfirmed ? '#10b981' : isLocked ? '#ef4444' : '#f59e0b' }}>{appt.status || "Pending"}</b></div>
                   <div style={infoItem}><span>Appt Time:</span><b>{appt.appointment_time}</b></div>
@@ -391,7 +444,6 @@ export default function DoctorDashboard() {
                   <div style={infoItem}><span>Token:</span><b style={{ color: '#3b82f6' }}>#{currentToken}</b></div>
                 </div>
 
-                {/* Quick Rx */}
                 <div style={{ margin: '10px 0' }}>
                   <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b' }}>QUICK Rx:</span>
                   <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '5px' }}>
@@ -409,7 +461,6 @@ export default function DoctorDashboard() {
                   onChange={(e) => setPrescriptions({ ...prescriptions, [appt.id]: e.target.value })}
                 />
 
-                {/* Follow up + Buttons */}
                 <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '10px', fontWeight: 'bold' }}>Next Follow-up:</span>
